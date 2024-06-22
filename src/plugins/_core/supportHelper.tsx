@@ -60,6 +60,16 @@ const AsyncFunction = async function () { }.constructor;
 
 const ShowCurrentGame = getUserSettingLazy<boolean>("status", "showCurrentGame")!;
 
+async function forceUpdate() {
+    const outdated = await checkForUpdates();
+    if (outdated) {
+        await update();
+        relaunch();
+    }
+
+    return outdated;
+}
+
 async function generateDebugInfoMessage() {
     const { RELEASE_CHANNEL } = window.GLOBAL_ENV;
 
@@ -127,7 +137,7 @@ export default definePlugin({
     required: true,
     description: "Helps us provide support to you",
     authors: [Devs.Ven],
-    dependencies: ["CommandsAPI", "UserSettingsAPI"],
+    dependencies: ["CommandsAPI", "UserSettingsAPI", "MessageAccessoriesAPI"],
 
     patches: [{
         find: ".BEGINNING_DM.format",
@@ -159,27 +169,25 @@ export default definePlugin({
             const selfId = UserStore.getCurrentUser()?.id;
             if (!selfId || isPluginDev(selfId)) return;
 
-            await checkForUpdatesOnce().catch(() => { });
+            if (!IS_UPDATER_DISABLED) {
+                await checkForUpdatesOnce().catch(() => { });
 
-            if (isOutdated) {
-                return Alerts.show({
-                    title: "Hold on!",
-                    body: <div>
-                        <Forms.FormText>You are using an outdated version of Vencord! Chances are, your issue is already fixed.</Forms.FormText>
-                        <Forms.FormText className={Margins.top8}>
-                            Please first update before asking for support!
-                        </Forms.FormText>
-                    </div>,
-                    onCancel: () => openUpdaterModal!(),
-                    cancelText: "View Updates",
-                    confirmText: "Update & Restart Now",
-                    async onConfirm() {
-                        await checkForUpdates();
-                        await update();
-                        relaunch();
-                    },
-                    secondaryConfirmText: "I know what I'm doing or I can't update"
-                });
+                if (isOutdated) {
+                    return Alerts.show({
+                        title: "Hold on!",
+                        body: <div>
+                            <Forms.FormText>You are using an outdated version of Vencord! Chances are, your issue is already fixed.</Forms.FormText>
+                            <Forms.FormText className={Margins.top8}>
+                                Please first update before asking for support!
+                            </Forms.FormText>
+                        </div>,
+                        onCancel: () => openUpdaterModal!(),
+                        cancelText: "View Updates",
+                        confirmText: "Update & Restart Now",
+                        onConfirm: forceUpdate,
+                        secondaryConfirmText: "I know what I'm doing or I can't update"
+                    });
+                }
             }
 
             // @ts-ignore outdated type
@@ -248,10 +256,10 @@ export default definePlugin({
                         color={Button.Colors.GREEN}
                         onClick={async () => {
                             try {
-                                await checkForUpdates();
-                                await update();
-                                showToast("Success! Restarting...", Toasts.Type.SUCCESS);
-                                relaunch();
+                                if (await forceUpdate())
+                                    showToast("Success! Restarting...", Toasts.Type.SUCCESS);
+                                else
+                                    showToast("Already up to date!", Toasts.Type.MESSAGE);
                             } catch (e) {
                                 new Logger(this.name).error("Error while updating:", e);
                                 showToast("Failed to update :(", Toasts.Type.FAILURE);
